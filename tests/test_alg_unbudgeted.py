@@ -176,6 +176,26 @@ def test_algorithm1_random_vs_enumeration():
         check_result(net, algorithm1(net, kj=kj, eta=ETA), enumerate_best(net, kj), kj)
 
 
+def test_algorithm1_ties_final_probe():
+    # Empates en los márgenes: beta(1) = Lambda*_loc = 3 desde el principio y z^1 elige la
+    # reacción equivocada (D -> C + D en lugar de D -> 2D). La última resolución por encima
+    # de UB debe recuperar una subred que alcanza 3.
+    Sm = [[0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+          [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+          [0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0],
+          [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0]]
+    Sp = [[1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0],
+          [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+          [0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+          [1, 0, 1, 0, 1, 0, 2, 0, 0, 0, 0, 1, 1]]
+    kappa = [3, 1, 3, 3, 1, 1, 3, 1, 3, 1, 1, 3, 3]
+    net = FirstOrderNetwork(Sm, Sp, kappa)
+    kj = [1, 0, 2, 1]
+    res = algorithm1(net, kj=kj, eta=ETA)
+    check_result(net, res, 3.0, kj)
+    assert abs(res["LB"] - 3.0) < 1e-12
+
+
 # ---------------------------------------------------------------- certificado
 def test_certify_example():
     net = example()
@@ -206,3 +226,14 @@ def test_certify_no_false_positives():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([os.path.abspath(__file__), "-q"]))
+    
+    
+    
+    
+  
+    
+# import pytest, os
+# os.chdir(r"C:\Users\Trabajador\Desktop\max-growth-subnetworks")
+# pytest.main(["tests", "-q"])
+    
+    

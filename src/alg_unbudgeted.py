@@ -119,6 +119,20 @@ def algorithm1(net, kj=None, eta=1e-6, eta_abs=1e-9, max_iter=200, env=None):
             ell = lam
         ell = max(ell, LB)
 
+    # Si el PL ha cerrado [ell, UB] pero ninguna z^u alcanza ell (p. ej., por empates en
+    # los márgenes con lambda < Lambda*), se resuelve una vez justo por encima de UB:
+    # ahí theta < 0 y el minimizador u separa mejor las reacciones.
+    if UB - LB > max(eta * UB, eta_abs):
+        lam = UB + max(eta * UB, eta_abs)
+        _, u = solve_theta(lp, lam)
+        n_lp += 1
+        z_u = z_of(u)
+        L_u = net.growth_rate(z_u)
+        if L_u > LB:
+            LB, z_best = L_u, z_u
+        UB = min(UB, beta(u))
+        ell = max(ell, LB)
+
     lp["model"].dispose()
     return {"z": np.asarray(z_best, dtype=int), "LB": LB, "ell": ell, "UB": UB,
             "n_lp": n_lp, "time": time.perf_counter() - t0, "converged": gap_ok()}
@@ -147,5 +161,3 @@ def certify(net, z, tol=1e-9):
     relevant = np.abs(marg) > tol
     ok = bool(np.all(z[relevant] == (marg[relevant] > 0)))
     return ok, u
-
-

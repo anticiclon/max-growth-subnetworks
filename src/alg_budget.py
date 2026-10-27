@@ -80,7 +80,14 @@ def solve_feasibility(F, lam):
 
 
 
-def algorithm2(net, k, LB, UB, z_init, eta=1e-6, eta_abs=1e-9, env=None, max_iter=200):
+def add_nogood(F, z):
+    """Corte que excluye exactamente la subred z: sum_{z_a=1} (1 - z_a) + sum_{z_a=0} z_a >= 1."""
+    zv = F["z"]
+    expr = gp.quicksum(1 - zv[a] if z[a] else zv[a] for a in range(F["m"]))
+    F["model"].addConstr(expr >= 1)
+
+
+def algorithm2(net, k, LB, UB, z_init, eta=1e-6, eta_abs=1e-9, env=None, max_iter=200, max_cuts=10):
     """Algoritmo 2: bisección sobre lambda con el MILP F(lambda, k) para Lambda*_k.
 
     Entrada: cotas LB <= Lambda*_k <= UB y una subred z_init con sum(z_init) <= k y
@@ -91,8 +98,11 @@ def algorithm2(net, k, LB, UB, z_init, eta=1e-6, eta_abs=1e-9, env=None, max_ite
       UB         cota superior: el UB de entrada o un lambda con F(lambda, k) infactible
       n_milp     número de MILP resueltos
       time       tiempo total en segundos
-      flag_tol   True si el MILP aceptó, dentro de su tolerancia, una z con Lambda(z) < lambda
-                 (el algoritmo se detiene e informa del intervalo [LB, UB])
+      n_cuts     número de cortes añadidos: cada vez que el MILP acepta, dentro de su
+                 tolerancia, una z con Lambda(z) < lambda, se excluye esa z con un corte y se
+                 repite el mismo lambda (válido porque los lambda siguientes superan LB >= Lambda(z))
+      flag_tol   True si se superan max_cuts cortes (el algoritmo se detiene e informa del
+                 intervalo [LB, UB])
       converged  True si UB - LB <= max(eta*UB, eta_abs)
     """
     t0 = time.perf_counter()
@@ -101,8 +111,9 @@ def algorithm2(net, k, LB, UB, z_init, eta=1e-6, eta_abs=1e-9, env=None, max_ite
         raise ValueError("z_init debe ser un vector 0-1 de longitud m con sum(z_init) <= k")
     if abs(net.growth_rate(z_best) - LB) > 1e-12 * max(1.0, abs(LB)):
         raise ValueError("LB debe ser la tasa de crecimiento de z_init")
-    if UB < LB:
-        raise ValueError("UB < LB")
+    if UB < LB - 1e-9 * max(1.0, abs(LB)):
+        raise ValueError(f"UB < LB: UB={UB!r}, LB={LB!r}")
+    UB = max(UB, LB)                          # absorbe diferencias de redondeo (~1e-14)
 
     F = build_feasibility(net, k, env=env)
     n_milp = 0
@@ -111,6 +122,7 @@ def algorithm2(net, k, LB, UB, z_init, eta=1e-6, eta_abs=1e-9, env=None, max_ite
     def gap_ok():
         return UB - LB <= max(eta * UB, eta_abs)
 
+    n_cuts = 0
     while not gap_ok() and n_milp < max_iter:
         lam = 0.5 * (LB + UB)
         feasible, _, z, _, _ = solve_feasibility(F, lam)
@@ -119,15 +131,18 @@ def algorithm2(net, k, LB, UB, z_init, eta=1e-6, eta_abs=1e-9, env=None, max_ite
             L_z = net.growth_rate(z)          # recalculada fuera del solver
             if L_z > LB:
                 LB, z_best = L_z, z
-            if L_z < lam:                     # aceptada solo por la tolerancia del solver
-                flag_tol = True
-                break
+            if L_z < lam:                     # aceptada solo por la tolerancia del solver:
+                add_nogood(F, z)              # se excluye z y se repite el mismo lambda
+                n_cuts += 1
+                if n_cuts > max_cuts:
+                    flag_tol = True
+                    break
         else:
             UB = lam                          # F(lambda, k) infactible  =>  Lambda*_k < lambda
 
     F["model"].dispose()
     return {"z": z_best, "LB": LB, "UB": UB, "n_milp": n_milp,
-            "time": time.perf_counter() - t0, "flag_tol": flag_tol, "converged": gap_ok()}
+            "time": time.perf_counter() - t0, "flag_tol": flag_tol, "n_cuts": n_cuts, "converged": gap_ok()}
 
 
 def budget_curve(net, ks, res1, eta=1e-6, eta_abs=1e-9, env=None):
@@ -156,20 +171,3 @@ def budget_curve(net, ks, res1, eta=1e-6, eta_abs=1e-9, env=None):
         out.append(r)
         LB, z = r["LB"], r["z"]
     return out
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

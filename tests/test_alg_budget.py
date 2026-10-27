@@ -17,7 +17,7 @@ import pytest
 
 from network import FirstOrderNetwork
 from alg_unbudgeted import algorithm1
-from alg_budget import build_feasibility, solve_feasibility, algorithm2, budget_curve
+from alg_budget import build_feasibility, solve_feasibility, algorithm2, budget_curve, add_nogood
 
 L = np.sqrt(2) - 1
 L_OREG = 2.019568652442607
@@ -131,6 +131,23 @@ def test_algorithm2_input_checks():
         algorithm2(net, 2, L, 0.1, [1, 1, 0, 0])
 
 
+def test_algorithm2_rounding_UB_below_LB():
+    # Un UB que queda por debajo de LB solo por redondeo (~1e-14) se acepta.
+    net = example()
+    r = algorithm2(net, 2, L, L - 1e-14, [1, 1, 0, 0])
+    assert r["n_milp"] == 0 and r["LB"] == L and r["UB"] >= r["LB"]
+
+
+def test_add_nogood_excludes_exactly_one_subnetwork():
+    net = FirstOrderNetwork([[1, 1]], [[2, 3]], [1.0, 1.0])       # A -> 2A, A -> 3A
+    F = build_feasibility(net, 1)
+    feasible, _, z, _, _ = solve_feasibility(F, 1.5)              # solo A -> 3A (Lambda = 2)
+    assert feasible and list(z) == [0, 1]
+    add_nogood(F, z)
+    assert not solve_feasibility(F, 1.5)[0]                       # A -> 2A sola da 1 < 1.5
+    assert solve_feasibility(F, 0.5)[0]                           # A -> 2A sigue disponible
+
+
 def test_algorithm2_already_converged():
     net = example()
     r = algorithm2(net, 2, L, L, [1, 1, 0, 0])
@@ -217,3 +234,17 @@ def test_clique_reduction(seed):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([os.path.abspath(__file__), "-q"]))
+    
+    
+    
+    
+    
+    
+    
+    
+    
+# import pytest, os
+# os.chdir(r"C:\Users\Trabajador\Desktop\max-growth-subnetworks")
+# pytest.main(["tests", "-q"])
+    
+    

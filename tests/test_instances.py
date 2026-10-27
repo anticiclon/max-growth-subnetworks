@@ -153,3 +153,10 @@ def test_clique_instance_invalid(q):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([os.path.abspath(__file__), "-q"]))
+    
+   
+# import pytest, os
+# os.chdir(r"C:\Users\Trabajador\Desktop\max-growth-subnetworks")
+# pytest.main(["tests", "-q"])
+    
+    
