@@ -17,5 +17,8 @@ scenarios/*
 !scenarios/.gitkeep
 !scenarios/formose_minus.txt
 !scenarios/formose_plus.txt
+!scenarios/formose_species.txt
 
 .DS_Store
+
+.pytest_cache/
