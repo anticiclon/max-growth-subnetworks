@@ -4,7 +4,7 @@ from network import FirstOrderNetwork
 
 
 def running_example(kappa=(1, 1, 1, 0.1)):
-    """Ejemplo de cuatro reacciones del artículo (Ejemplos 2.2, 3.4 y 4.4).
+    """Ejemplo de cuatro reacciones del artículo.
 
     Especies (A, B, C); reacciones a1: A -> 2B, a2: B -> A, a3: B -> C, a4: C -> A.
     Con kappa = (1, 1, 1, 0.1): Lambda(1) = 0.204769, Lambda* = sqrt(2) - 1
