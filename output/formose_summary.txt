@@ -1,0 +1,22 @@
+Subred óptima según el MAF: alpha* = 1.1382, R1 R2 R3 R5 R6 R9 R38
+== NH3 (50 realizaciones) ==
+  Lambda_MAF / Lambda*: mediana 0.036, mínimo 9.49e-04
+  Lambda* / Lambda_MAF: mediana 27.7, rango 1-1.05e+03
+  el MAF alcanza Lambda* (diferencia <= 0.1%): 7/50
+  Lambda* / Lambda(1): mediana 31, mínimo 1.05, máximo finito 1.42e+03; Lambda(1) = 0 en 7/50
+  subred óptima: 26-35 reacciones; autónomas 0/50; contiene la del MAF 7/50
+  brecha certificada: máxima 8.8e-07, mediana 1.1e-08
+== HCOOH (50 realizaciones) ==
+  Lambda_MAF / Lambda*: mediana 0.083, mínimo 8.65e-04
+  Lambda* / Lambda_MAF: mediana 12, rango 1-1.16e+03
+  el MAF alcanza Lambda* (diferencia <= 0.1%): 10/50
+  Lambda* / Lambda(1): mediana 23.2, mínimo 1, máximo finito 1.25e+03; Lambda(1) = 0 en 3/50
+  subred óptima: 26-35 reacciones; autónomas 0/50; contiene la del MAF 12/50
+  brecha certificada: máxima 5.2e-06, mediana 4.7e-07
+== agua (50 realizaciones) ==
+  Lambda_MAF / Lambda*: mediana 0.015, mínimo 2.04e-04
+  Lambda* / Lambda_MAF: mediana 66, rango 1-4.9e+03
+  el MAF alcanza Lambda* (diferencia <= 0.1%): 5/50
+  Lambda* / Lambda(1): mediana 37.3, mínimo 1, máximo finito 4.58e+03; Lambda(1) = 0 en 8/50
+  subred óptima: 27-31 reacciones; autónomas 0/50; contiene la del MAF 6/50
+  brecha certificada: máxima 9.9e-07, mediana 2.5e-07
