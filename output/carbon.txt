@@ -1,0 +1,5 @@
+rTCA: MAF = 1.0764 con 11 reacciones
+100 vectores kappa log-uniformes en [1e-4, 1e4] (semilla 20261028):
+  el ciclo completo es la subred óptima y Lambda* = Lambda(1) > 0: 100/100
+  Lambda*_k = 0 para todo k < 11: 100/100  (máximo de |Lambda*_k| / max(kappa): 6.1e-16)
+  el Algoritmo 1 encuentra el ciclo completo: 100/100

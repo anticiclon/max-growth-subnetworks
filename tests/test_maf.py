@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from network import FirstOrderNetwork, from_scenario
-from instances import running_example, oregonator
+from instances import running_example, oregonator, rtca
 from maf import maf_optimal
 
 
@@ -80,6 +80,10 @@ def test_formose():
     assert list(np.flatnonzero(z)) == [0, 1, 2, 4, 5, 8, 37]   # R1, R2, R3, R5, R6, R9, R38
     assert z.sum() == 7
 
+def test_rtca():
+    alpha, z = maf_optimal(rtca())
+    assert alpha == pytest.approx(1.076379, abs=1e-5)
+    assert z.sum() == 11
 
 if __name__ == "__main__":
     sys.exit(pytest.main([os.path.abspath(__file__), "-q"]))

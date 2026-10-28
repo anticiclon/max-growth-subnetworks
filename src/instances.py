@@ -132,4 +132,23 @@ def clique_instance(rng, n, p, q, plant):
                      for C in itertools.combinations(range(n), q))
     return net, edges, has_clique
 
+def rtca(kappa=None):
+    """Ciclo inverso de los ácidos tricarboxílicos (rTCA; Smith y Morowitz, 2004), 11 especies.
 
+    Especies internas: OAA, MAL, FUM, SUC, SCoA, AKG, ICIT, CIT, ACoA, PYR, PEP. Las externas
+    (CO2, reductores, ATP, CoA) se incorporan a kappa. La reacción i (columna i) consume la
+    especie i:
+      R1 OAA->MAL   R2 MAL->FUM   R3 FUM->SUC   R4 SUC->SCoA   R5 SCoA->AKG   R6 AKG->ICIT
+      R7 ICIT->CIT  R8 CIT->OAA+ACoA  R9 ACoA->PYR  R10 PYR->PEP  R11 PEP->OAA
+    Único ciclo autocatalítico: las 11 reacciones (MAF 1.0764).
+    """
+    S_minus = np.eye(11)
+    S_plus = np.zeros((11, 11))
+    products = {0: [1], 1: [2], 2: [3], 3: [4], 4: [5], 5: [6], 6: [7], 7: [0, 8],
+                8: [9], 9: [10], 10: [0]}
+    for a, outs in products.items():
+        for v in outs:
+            S_plus[v, a] += 1
+    kappa = np.ones(11) if kappa is None else kappa
+    names = ["OAA", "MAL", "FUM", "SUC", "SCoA", "AKG", "ICIT", "CIT", "ACoA", "PYR", "PEP"]
+    return FirstOrderNetwork(S_minus, S_plus, kappa, names)
