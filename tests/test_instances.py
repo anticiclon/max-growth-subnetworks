@@ -37,6 +37,30 @@ def test_oregonator():
     assert np.allclose(oregonator(A=0.12).kappa, [0.1536, 4.032, 0.05])
 
 
+def test_rtca_structure():
+    net = rtca()
+    assert (net.n, net.m) == (11, 11)
+    assert net.names == ["OAA", "MAL", "FUM", "SUC", "SCoA", "AKG", "ICIT", "CIT", "ACoA", "PYR", "PEP"]
+    assert np.array_equal(net.S_minus, np.eye(11))           # la reacción i consume la especie i
+    assert list(np.flatnonzero(net.S_plus[:, 7])) == [0, 8]   # R8: CIT -> OAA + ACoA
+    for a in [i for i in range(11) if i != 7]:
+        assert net.S_plus[:, a].sum() == 1                    # el resto: una molécula
+    assert net.growth_rate() > 0
+
+
+def test_rtca_single_cycle():
+    # Solo crece el ciclo completo: con kappa aleatorias, Lambda*_k = 0 para k < 11 y
+    # Lambda* = Lambda(1), alcanzado únicamente por las 11 reacciones.
+    rng = np.random.default_rng(11)
+    for _ in range(5):
+        kappa = 10 ** rng.uniform(-4, 4, 11)
+        net = rtca(kappa)
+        e = enumerate_all(net)
+        assert np.all(np.abs(e["Lk"][:11]) <= 1e-10 * kappa.max())
+        assert e["Lstar"] == pytest.approx(net.growth_rate(), rel=1e-9)
+        assert e["z_star"].sum() == 11
+
+
 # ---------------------------------------------------------------- random_instance
 def test_random_instance_structure():
     rng = np.random.default_rng(0)
@@ -48,6 +72,15 @@ def test_random_instance_structure():
         assert np.all(net.S_minus.sum(axis=0) == 1)          # primer orden
         assert np.all(net.S_plus.sum(axis=0) <= mp)
         assert np.all((net.kappa >= 1e-3) & (net.kappa <= 1e3))
+
+
+def test_random_instance_without_self_products():
+    rng = np.random.default_rng(9)
+    for _ in range(20):
+        net = random_instance(rng, int(rng.integers(2, 9)), int(rng.integers(1, 20)),
+                              self_products=False)
+        for a in range(net.m):
+            assert net.S_plus[net.source[a], a] == 0            # nunca produce su fuente
 
 
 def test_random_instance_reproducible():
@@ -150,37 +183,7 @@ def test_clique_instance_theorem():
 def test_clique_instance_invalid(q):
     with pytest.raises(ValueError):
         clique_instance(np.random.default_rng(0), 8, 0.3, q, plant=False)
-        
-def test_rtca_structure():
-    net = rtca()
-    assert (net.n, net.m) == (11, 11)
-    assert net.names == ["OAA", "MAL", "FUM", "SUC", "SCoA", "AKG", "ICIT", "CIT", "ACoA", "PYR", "PEP"]
-    assert np.array_equal(net.S_minus, np.eye(11))           # la reacción i consume la especie i
-    assert list(np.flatnonzero(net.S_plus[:, 7])) == [0, 8]   # R8: CIT -> OAA + ACoA
-    for a in [i for i in range(11) if i != 7]:
-        assert net.S_plus[:, a].sum() == 1                    # el resto: una molécula
-    assert net.growth_rate() > 0
-
-
-def test_rtca_single_cycle():
-    # Solo crece el ciclo completo: con kappa aleatorias, Lambda*_k = 0 para k < 11 y
-    # Lambda* = Lambda(1), alcanzado únicamente por las 11 reacciones.
-    rng = np.random.default_rng(11)
-    for _ in range(5):
-        kappa = 10 ** rng.uniform(-4, 4, 11)
-        net = rtca(kappa)
-        e = enumerate_all(net)
-        assert np.all(np.abs(e["Lk"][:11]) <= 1e-10 * kappa.max())
-        assert e["Lstar"] == pytest.approx(net.growth_rate(), rel=1e-9)
-        assert e["z_star"].sum() == 11      
 
 
 if __name__ == "__main__":
     sys.exit(pytest.main([os.path.abspath(__file__), "-q"]))
-    
-   
-# import pytest, os
-# os.chdir(r"C:\Users\Trabajador\Desktop\max-growth-subnetworks")
-# pytest.main(["tests", "-q"])
-    
-    

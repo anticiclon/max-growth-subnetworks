@@ -48,7 +48,7 @@ def build_theta_lp(net, kj=None, env=None):
     model.addConstr(gp.quicksum(u[j] for j in range(n)) == 1, name="C3")
     model.setObjective(t, GRB.MINIMIZE)
     model.update()
-    return {"model": model, "u": u, "C2": C2, "t": t, "n": n}
+    return {"model": model, "u": u, "C2": C2, "t": t, "n": n, "time_lp": 0.0}
 
 
 def solve_theta(lp, lam):
@@ -61,6 +61,7 @@ def solve_theta(lp, lam):
     for j in range(lp["n"]):
         model.chgCoeff(C2[j], u[j], -lam)
     model.optimize()
+    lp["time_lp"] += model.Runtime
     if model.Status != GRB.OPTIMAL:
         raise RuntimeError(f"PL de theta(lambda={lam}) no óptimo (estado {model.Status})")
     theta = model.ObjVal
@@ -105,7 +106,7 @@ def policy_iteration(net, z, kj=None, tau=1e-6, max_iter=100):
     z = np.asarray(z, dtype=int)
     L = net.growth_rate(z)
     for _ in range(max_iter):
-        z_new, L_new = _best(net, _selections(net, left_perron(net.M(z)), kj, tau))
+        z_new, L_new = _best(net, _selections(net, net.left_perron(z), kj, tau))
         if not L_new > L + 1e-12 * abs(L):
             break
         z, L = z_new, L_new
@@ -129,6 +130,7 @@ def algorithm1(net, kj=None, eta=1e-6, eta_abs=1e-9, max_iter=200, env=None, tau
       UB        cota superior certificada: beta(1) o beta(u) para algún u > 0
       n_lp      número de programas lineales resueltos
       time      tiempo de cómputo en segundos
+      time_lp   tiempo dentro del solver de PL (el resto: autovalores y construcción del modelo)
       converged True si UB - ell <= max(eta*UB, eta_abs)
     Cada u de los PL se convierte en subred con las dos selecciones de _selections (tau es
     la tolerancia relativa de los márgenes casi nulos) y se mejora con policy_iteration;
@@ -183,9 +185,11 @@ def algorithm1(net, kj=None, eta=1e-6, eta_abs=1e-9, max_iter=200, env=None, tau
         UB = min(UB, beta(u))
         ell = max(ell, LB)
 
+    time_lp = lp["time_lp"]
     lp["model"].dispose()
     return {"z": np.asarray(z_best, dtype=int), "LB": LB, "ell": ell, "UB": UB,
-            "n_lp": n_lp, "time": time.perf_counter() - t0, "converged": gap_ok()}
+            "n_lp": n_lp, "time": time.perf_counter() - t0, "time_lp": time_lp,
+            "converged": gap_ok()}
 
 
 
@@ -210,7 +214,7 @@ def algorithm1_rescaled(net, kj=None, eta=1e-6, eta_abs=1e-9, max_iter=200, env=
         z = r["z"]
     return {"z": z, "LB": LB, "ell": max(r["ell"] * s, LB), "UB": min(r0["UB"], r["UB"] * s),
             "n_lp": r0["n_lp"] + r["n_lp"], "time": r0["time"] + r["time"],
-            "converged": r["converged"], "scale": s}
+            "time_lp": r0["time_lp"] + r["time_lp"], "converged": r["converged"], "scale": s}
 
 
 def certify(net, z, tol=1e-9):
@@ -234,3 +238,5 @@ def certify(net, z, tol=1e-9):
     relevant = np.abs(marg) > tol
     ok = bool(np.all(z[relevant] == (marg[relevant] > 0)))
     return ok, u
+
+

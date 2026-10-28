@@ -59,7 +59,8 @@ def solve_feasibility(F, lam):
     (factible, x, z, estado, tiempo):
       - infactible: (False, None, None, estado, tiempo)
       - factible:   (True, x, z, estado, tiempo), con x array de NumPy y z de enteros 0/1.
-    Cualquier otro estado (p. ej., límite de tiempo) lanza RuntimeError.
+      - límite de tiempo sin solución: (None, None, None, estado, tiempo)
+    Cualquier otro estado lanza RuntimeError.
     """
     model, x, z, G = F["model"], F["x"], F["z"], F["G"]
     for v in range(F["n"]):
@@ -71,10 +72,12 @@ def solve_feasibility(F, lam):
     # Con objetivo constante el modelo no puede ser no acotado: INF_OR_UNBD es infactible.
     if status in (GRB.INFEASIBLE, GRB.INF_OR_UNBD):
         return False, None, None, status, elapsed
-    if status == GRB.OPTIMAL and model.SolCount > 0:
+    if status in (GRB.OPTIMAL, GRB.TIME_LIMIT) and model.SolCount > 0:
         x_val = np.array([x[v].X for v in range(F["n"])])
         z_val = np.array([int(round(z[a].X)) for a in range(F["m"])], dtype=int)
         return True, x_val, z_val, status, elapsed
+    if status == GRB.TIME_LIMIT:                  # sin solución ni prueba de infactibilidad
+        return None, None, None, status, elapsed
     raise RuntimeError(f"F(lambda={lam}) sin resolver (estado {status})")
 
 
@@ -87,7 +90,8 @@ def add_nogood(F, z):
     F["model"].addConstr(expr >= 1)
 
 
-def algorithm2(net, k, LB, UB, z_init, eta=1e-6, eta_abs=1e-9, env=None, max_iter=200, max_cuts=10):
+def algorithm2(net, k, LB, UB, z_init, eta=1e-6, eta_abs=1e-9, env=None, max_iter=200, max_cuts=10,
+               time_limit=None, total_time=None):
     """Algoritmo 2: bisección sobre lambda con el MILP F(lambda, k) para Lambda*_k.
 
     Entrada: cotas LB <= Lambda*_k <= UB y una subred z_init con sum(z_init) <= k y
@@ -103,6 +107,9 @@ def algorithm2(net, k, LB, UB, z_init, eta=1e-6, eta_abs=1e-9, env=None, max_ite
                  repite el mismo lambda (válido porque los lambda siguientes superan LB >= Lambda(z))
       flag_tol   True si se superan max_cuts cortes (el algoritmo se detiene e informa del
                  intervalo [LB, UB])
+      timed_out  True si un MILP agotó su tiempo (time_limit, en s) sin decidir, o si se agotó
+                 el tiempo total (total_time, en s); se informa del intervalo [LB, UB]
+      time_milp  tiempo dentro del solver MILP
       converged  True si UB - LB <= max(eta*UB, eta_abs)
     """
     t0 = time.perf_counter()
@@ -118,6 +125,8 @@ def algorithm2(net, k, LB, UB, z_init, eta=1e-6, eta_abs=1e-9, env=None, max_ite
     F = build_feasibility(net, k, env=env)
     n_milp = 0
     flag_tol = False
+    timed_out = False
+    time_milp = 0.0
 
     def gap_ok():
         return UB - LB <= max(eta * UB, eta_abs)
@@ -125,8 +134,20 @@ def algorithm2(net, k, LB, UB, z_init, eta=1e-6, eta_abs=1e-9, env=None, max_ite
     n_cuts = 0
     while not gap_ok() and n_milp < max_iter:
         lam = 0.5 * (LB + UB)
-        feasible, _, z, _, _ = solve_feasibility(F, lam)
+        limit = time_limit
+        if total_time is not None:
+            remaining = total_time - (time.perf_counter() - t0)
+            if remaining <= 0:
+                timed_out = True
+                break
+            limit = remaining if limit is None else min(limit, remaining)
+        F["model"].Params.TimeLimit = GRB.INFINITY if limit is None else limit
+        feasible, _, z, _, elapsed = solve_feasibility(F, lam)
         n_milp += 1
+        time_milp += elapsed
+        if feasible is None:                  # límite de tiempo sin decidir
+            timed_out = True
+            break
         if feasible:
             L_z = net.growth_rate(z)          # recalculada fuera del solver
             if L_z > LB:
@@ -142,7 +163,8 @@ def algorithm2(net, k, LB, UB, z_init, eta=1e-6, eta_abs=1e-9, env=None, max_ite
 
     F["model"].dispose()
     return {"z": z_best, "LB": LB, "UB": UB, "n_milp": n_milp,
-            "time": time.perf_counter() - t0, "flag_tol": flag_tol, "n_cuts": n_cuts, "converged": gap_ok()}
+            "time": time.perf_counter() - t0, "time_milp": time_milp, "flag_tol": flag_tol,
+            "timed_out": timed_out, "n_cuts": n_cuts, "converged": gap_ok()}
 
 
 def budget_curve(net, ks, res1, eta=1e-6, eta_abs=1e-9, env=None):
@@ -171,3 +193,20 @@ def budget_curve(net, ks, res1, eta=1e-6, eta_abs=1e-9, env=None):
         out.append(r)
         LB, z = r["LB"], r["z"]
     return out
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

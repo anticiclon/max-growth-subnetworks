@@ -6,9 +6,13 @@ Convenciones (Sección 3 del artículo):
   - M_z = sum_a z_a kappa_a (t_a - e_{s(a)}) e_{s(a)}^T, con t_a = S_plus[:, a].
   - Lambda(z) = máximo de las partes reales de los autovalores de M_z.
 """
-import numpy as np
 import os
+import numpy as np
+import scipy.sparse as sp
+from scipy.sparse.linalg import eigs, ArpackNoConvergence
 from auxiliary_functions import readScenario
+
+DENSE_MAX = 400      # con n <= DENSE_MAX, autovalores densos (numpy); con n mayor, dispersos (ARPACK)
 
 
 class FirstOrderNetwork:
@@ -38,19 +42,66 @@ class FirstOrderNetwork:
         if len(names) != n:
             raise ValueError(f"Se esperaban {n} nombres y hay {len(names)}")
         self.names = names
+        # Entradas no nulas de S_plus - S_minus (fila, reacción, valor) para construir M_z
+        D = S_plus - S_minus
+        self._rows, self._rxn = np.nonzero(D)
+        self._vals = D[self._rows, self._rxn]
 
     # ---- operador y tasa de crecimiento ---------------------------------
-    def M(self, z=None):
-        """Operador de crecimiento M_z (z en {0,1}^m; None = red completa)."""
+    def M_sparse(self, z=None):
+        """M_z como matriz dispersa (CSR): la columna s(a) recibe z_a kappa_a (t_a - e_s(a))."""
         z = np.ones(self.m) if z is None else np.asarray(z, dtype=float)
-        W = (self.S_plus - self.S_minus) * (z * self.kappa)  # columna a: z_a kappa_a (t_a - e_s(a))
-        M = np.zeros((self.n, self.n))
-        np.add.at(M.T, self.source, W.T)                     # suma la columna a en la columna s(a)
-        return M
+        w = (z * self.kappa)[self._rxn] * self._vals
+        keep = w != 0
+        return sp.csr_matrix((w[keep], (self._rows[keep], self.source[self._rxn[keep]])),
+                             shape=(self.n, self.n))
+
+    def M(self, z=None):
+        """Operador de crecimiento M_z como matriz densa (z en {0,1}^m; None = red completa)."""
+        return self.M_sparse(z).toarray()
+
+    def _shift(self, Ms):
+        """c >= 0 tal que M + cI es no negativa y de diagonal positiva."""
+        return max(0.0, -float(Ms.diagonal().min())) + 1.0
 
     def growth_rate(self, z=None):
-        """Lambda(z): mayor parte real de los autovalores de M_z."""
-        return float(np.max(np.linalg.eigvals(self.M(z)).real))
+        """Lambda(z): mayor parte real de los autovalores de M_z.
+
+        Con n <= DENSE_MAX se calculan todos los autovalores (numpy). Con n mayor se calcula
+        solo el dominante con ARPACK sobre M_z + cI, que es no negativa: su autovalor de
+        mayor módulo es Lambda(z) + c (Perron-Frobenius). El vector inicial es 1 (positivo),
+        así el resultado es reproducible. Si Lambda(z) es un autovalor defectivo (p. ej., 0 en
+        una subred sin ciclos), el error puede ser del orden de 1e-8 veces max|M|, como en el
+        cálculo denso.
+        """
+        if self.n <= DENSE_MAX:
+            return float(np.max(np.linalg.eigvals(self.M(z)).real))
+        Ms = self.M_sparse(z)
+        c = self._shift(Ms)
+        try:
+            w = eigs(Ms + c * sp.identity(self.n, format="csr"), k=1, which="LM",
+                     v0=np.ones(self.n), return_eigenvectors=False, tol=0)
+            return float(w[0].real) - c
+        except ArpackNoConvergence:
+            return float(np.max(np.linalg.eigvals(Ms.toarray()).real))
+
+    def left_perron(self, z=None):
+        """Vector de Perron izquierdo de M_z (max_j u_j = 1, negativos por redondeo a 0)."""
+        if self.n <= DENSE_MAX:
+            w, V = np.linalg.eig(self.M(z).T)
+            u = np.real(V[:, int(np.argmax(w.real))])
+        else:
+            Ms = self.M_sparse(z)
+            c = self._shift(Ms)
+            try:
+                _, V = eigs((Ms + c * sp.identity(self.n, format="csr")).T.tocsr(), k=1,
+                            which="LM", v0=np.ones(self.n), tol=0)
+                u = np.real(V[:, 0])
+            except ArpackNoConvergence:
+                w, V = np.linalg.eig(Ms.toarray().T)
+                u = np.real(V[:, int(np.argmax(w.real))])
+        u = u / u[np.argmax(np.abs(u))]
+        return np.maximum(u, 0.0)
 
     # ---- utilidades del Teorema 4.2 -------------------------------------
     def margins(self, u):
@@ -117,8 +168,8 @@ class FirstOrderNetwork:
         if np.any(u <= 0):
             return np.inf
         return float(np.max(self.F_loc(u, kj) / u))
-    
-    def is_autonomous(self, z):
+
+    def is_autonomous    (self, z):
         """True si la subred z es autónoma (Definición 2.3 con M = N'): toda reacción
         seleccionada tiene un producto interno y toda especie que toca la subred es
         producida y consumida por reacciones seleccionadas. La subred vacía no es autónoma."""
@@ -134,10 +185,7 @@ class FirstOrderNetwork:
         touched = consumed | produced                         # N'
         return bool(np.all(consumed[touched]) and np.all(produced[touched]))  # (3) y (2)
 
-
 def from_scenario(name, kappa=None, external=None):
-    """Lee scenarios/<name>_minus.txt, _plus.txt y, si existe, _species.txt; elimina las
-    especies externas. Devuelve (red, índices originales de las especies internas)."""
     Sm, Sp = readScenario(name)
     if external is None:
         external = np.flatnonzero((Sm.sum(axis=1) > 0) & (Sp.sum(axis=1) == 0))
@@ -147,11 +195,9 @@ def from_scenario(name, kappa=None, external=None):
     names = None
     if os.path.exists(path):
         with open(path, encoding="utf-8") as fh:
-            all_names = fh.read().split()           # admite un nombre por línea o separados por espacios
+            all_names = fh.read().split()
         if len(all_names) != Sm.shape[0]:
-            raise ValueError(f"{path}: {len(all_names)} nombres para {Sm.shape[0]} especies")
+            raise ValueError("n")
         names = [all_names[i] for i in internal]
     kappa = np.ones(Sm.shape[1]) if kappa is None else kappa
     return FirstOrderNetwork(Sm[internal], Sp[internal], kappa, names), internal
-
-

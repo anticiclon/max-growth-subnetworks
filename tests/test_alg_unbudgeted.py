@@ -131,6 +131,11 @@ def test_algorithm1_example():
     assert res["n_lp"] <= 40
 
 
+def test_algorithm1_reports_lp_time():
+    res = algorithm1(oregonator())
+    assert 0 < res["time_lp"] <= res["time"]
+
+
 def test_algorithm1_oregonator():
     net = oregonator()
     res = algorithm1(net, eta=ETA)

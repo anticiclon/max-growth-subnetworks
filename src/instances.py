@@ -4,7 +4,7 @@ from network import FirstOrderNetwork
 
 
 def running_example(kappa=(1, 1, 1, 0.1)):
-    """Ejemplo de cuatro reacciones del artículo.
+    """Ejemplo de cuatro reacciones del artículo (Ejemplos 2.2, 3.2 y 4.4).
 
     Especies (A, B, C); reacciones a1: A -> 2B, a2: B -> A, a3: B -> C, a4: C -> A.
     Con kappa = (1, 1, 1, 0.1): Lambda(1) = 0.204769, Lambda* = sqrt(2) - 1
@@ -45,12 +45,14 @@ def oregonator(A=0.06, B=0.10, k1=1.28, k3=33.6, k5=0.5):
 
 
 def random_instance(rng, n, m, max_products=2, kappa_range=(1e-2, 1e2), dup_frac=0.0,
-                    kappa_values=None):
+                    kappa_values=None, self_products=True):
     """Red aleatoria de primer orden con n especies y m reacciones.
 
     Cada reacción consume una especie elegida al azar y produce entre 0 y max_products
     moléculas, cada una de una especie elegida al azar (puede repetirse: coeficiente 2).
     kappa: log-uniforme en kappa_range o, si kappa_values no es None, elegida de esa lista.
+    self_products=False: ninguna reacción produce su propia especie fuente (sin autocatálisis
+    de una sola reacción, como A -> 2A); el crecimiento exige ciclos entre especies.
     dup_frac: fracción de las m reacciones que son copias exactas (misma estequiometría y
     kappa) de otras; las columnas se barajan para que las copias no queden al final.
     """
@@ -67,8 +69,13 @@ def random_instance(rng, n, m, max_products=2, kappa_range=(1e-2, 1e2), dup_frac
     S_minus[rng.integers(0, n, n_base), np.arange(n_base)] = 1
     S_plus = np.zeros((n, n_base))
     for a in range(n_base):
+        source = int(np.flatnonzero(S_minus[:, a])[0])
         for _ in range(int(rng.integers(0, max_products + 1))):
-            S_plus[rng.integers(0, n), a] += 1
+            v = int(rng.integers(0, n))
+            if not self_products:
+                while v == source and n > 1:
+                    v = int(rng.integers(0, n))
+            S_plus[v, a] += 1
     if kappa_values is None:
         lo, hi = np.log10(kappa_range[0]), np.log10(kappa_range[1])
         kappa = 10.0 ** rng.uniform(lo, hi, n_base)
@@ -132,20 +139,13 @@ def clique_instance(rng, n, p, q, plant):
                      for C in itertools.combinations(range(n), q))
     return net, edges, has_clique
 
-def rtca(kappa=None):
-    """Ciclo inverso de los ácidos tricarboxílicos (rTCA; Smith y Morowitz, 2004), 11 especies.
 
-    Especies internas: OAA, MAL, FUM, SUC, SCoA, AKG, ICIT, CIT, ACoA, PYR, PEP. Las externas
-    (CO2, reductores, ATP, CoA) se incorporan a kappa. La reacción i (columna i) consume la
-    especie i:
-      R1 OAA->MAL   R2 MAL->FUM   R3 FUM->SUC   R4 SUC->SCoA   R5 SCoA->AKG   R6 AKG->ICIT
-      R7 ICIT->CIT  R8 CIT->OAA+ACoA  R9 ACoA->PYR  R10 PYR->PEP  R11 PEP->OAA
-    Único ciclo autocatalítico: las 11 reacciones (MAF 1.0764).
-    """
+
+
+def rtca(kappa=None):
     S_minus = np.eye(11)
     S_plus = np.zeros((11, 11))
-    products = {0: [1], 1: [2], 2: [3], 3: [4], 4: [5], 5: [6], 6: [7], 7: [0, 8],
-                8: [9], 9: [10], 10: [0]}
+    products = {0: [1], 1: [2], 2: [3], 3: [4], 4: [5], 5: [6], 6: [7], 7: [0, 8], 8: [9], 9: [10], 10: [0]}
     for a, outs in products.items():
         for v in outs:
             S_plus[v, a] += 1

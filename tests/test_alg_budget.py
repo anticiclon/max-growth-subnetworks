@@ -148,6 +148,21 @@ def test_add_nogood_excludes_exactly_one_subnetwork():
     assert solve_feasibility(F, 0.5)[0]                           # A -> 2A sigue disponible
 
 
+def test_algorithm2_total_time_zero():
+    # Sin tiempo disponible: se detiene enseguida, marca timed_out y el intervalo sigue siendo válido.
+    net = example()
+    r = algorithm2(net, 2, 0.0, 1.0, np.zeros(4, dtype=int), total_time=0.0)
+    assert r["timed_out"] and r["n_milp"] == 0
+    assert r["LB"] <= L <= r["UB"]
+
+
+def test_algorithm2_reports_milp_time():
+    net = example()
+    r = algorithm2(net, 2, 0.0, 1.0, np.zeros(4, dtype=int), time_limit=60)
+    assert not r["timed_out"] and r["n_milp"] > 0
+    assert 0 < r["time_milp"] <= r["time"]
+
+
 def test_algorithm2_already_converged():
     net = example()
     r = algorithm2(net, 2, L, L, [1, 1, 0, 0])
@@ -234,17 +249,3 @@ def test_clique_reduction(seed):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([os.path.abspath(__file__), "-q"]))
-    
-    
-    
-    
-    
-    
-    
-    
-    
-# import pytest, os
-# os.chdir(r"C:\Users\Trabajador\Desktop\max-growth-subnetworks")
-# pytest.main(["tests", "-q"])
-    
-    

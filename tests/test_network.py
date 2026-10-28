@@ -105,6 +105,28 @@ def test_growth_rate_integer_input():
     assert abs(net.growth_rate([1, 1, 0, 1]) - L) < TOL
 
 
+def test_M_sparse_matches_dense():
+    net = example()
+    for z in [None, [1, 1, 0, 1], [0, 0, 0, 0]]:
+        assert np.allclose(net.M_sparse(z).toarray(), net.M(z))
+    assert np.allclose(net.M(), [[-1.0, 1.0, 0.1], [2.0, -2.0, 0.0], [0.0, 1.0, -0.1]])
+
+
+def test_sparse_eigen_path_matches_dense(monkeypatch):
+    # Con n > DENSE_MAX se usa ARPACK; debe coincidir con el cálculo denso.
+    import network
+    from instances import random_instance
+    rng = np.random.default_rng(4)
+    net = random_instance(rng, 60, 180)
+    zs = [None] + [(rng.random(net.m) < p).astype(int) for p in (0.7, 0.3, 0.05)]
+    dense = [(net.growth_rate(z), net.left_perron(z)) for z in zs]
+    monkeypatch.setattr(network, "DENSE_MAX", 10)              # fuerza el camino disperso
+    for z, (Ld, ud) in zip(zs, dense):
+        assert net.growth_rate(z) == pytest.approx(Ld, rel=1e-8, abs=1e-8 * net.kappa.max())
+        if Ld > 1e-9:
+            assert np.allclose(net.left_perron(z), ud, atol=1e-7)
+
+
 # ---------------------------------------------------------------- márgenes, z^u, F, beta
 def test_left_perron_vector():
     M = example().M([1, 1, 0, 1])
@@ -214,22 +236,3 @@ def test_formose():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([os.path.abspath(__file__), "-q"]))
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-# import sys
-# sys.path.insert(0, r"C:\Users\Trabajador\Desktop\max-growth-subnetworks\src")
-    
-    
-    
-    
