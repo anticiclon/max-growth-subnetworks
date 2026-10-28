@@ -1,0 +1,4 @@
+vértices inst con clique correctas sin decidir  t med (s)    t máx
+      20   10          8         8           2       6.96    601.1
+      30   10          7         6           4     206.50    765.8
+      40   10          7         3           7     601.94    619.7
