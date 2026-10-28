@@ -17,7 +17,8 @@ import numpy as np
 import pytest
 
 from network import FirstOrderNetwork
-from alg_unbudgeted import build_theta_lp, solve_theta, algorithm1, certify
+from alg_unbudgeted import (build_theta_lp, solve_theta, algorithm1, certify, left_perron,
+                            policy_iteration, algorithm1_rescaled)
 
 L = np.sqrt(2) - 1
 L_OREG = 2.019568652442607
@@ -196,6 +197,55 @@ def test_algorithm1_ties_final_probe():
     assert abs(res["LB"] - 3.0) < 1e-12
 
 
+# ---------------------------------------------------------------- mejora local y cambio de escala
+def test_left_perron_example():
+    u = left_perron(example().M([1, 1, 0, 1]))
+    assert np.allclose(u, [1, np.sqrt(2) / 2, 0.1 / (L + 0.1)])
+
+
+def test_policy_iteration_reaches_optimum_example():
+    z, Lz = policy_iteration(example(), [1, 0, 1, 1])            # parte de Lambda = 0.0735
+    assert abs(Lz - L) < 1e-12 and abs(example().growth_rate(z) - Lz) < 1e-15
+
+
+def test_policy_iteration_never_worse():
+    rng = np.random.default_rng(31)
+    for _ in range(100):
+        net = random_network(rng)
+        z0 = rng.integers(0, 2, net.m)
+        z, Lz = policy_iteration(net, z0)
+        assert Lz >= net.growth_rate(z0) - 1e-15
+        assert abs(net.growth_rate(z) - Lz) < 1e-15
+        kj = rng.integers(0, 3, net.n)
+        z0 = net.z_of_loc(rng.random(net.n), kj)
+        z, Lz = policy_iteration(net, z0, kj=kj)
+        assert Lz >= net.growth_rate(z0) - 1e-15
+        assert all(z[net.by_species[j]].sum() <= kj[j] for j in range(net.n))
+
+
+@pytest.mark.parametrize("factor", [1.0, 1e-12, 1e8])
+def test_algorithm1_rescaled_scale_invariance(factor):
+    # Con kappa multiplicadas por un factor, Lambda* se multiplica por el mismo factor y la
+    # brecha relativa sigue siendo pequeña (con factor 1e-12, eta_abs = 1e-9 ya no lo es).
+    base = oregonator()
+    net = FirstOrderNetwork(base.S_minus, base.S_plus, factor * base.kappa)
+    r = algorithm1_rescaled(net, eta=ETA)
+    assert r["LB"] == pytest.approx(factor * L_OREG, rel=1e-9)
+    assert (r["UB"] - r["LB"]) / r["LB"] <= 1.1 * ETA
+    assert abs(net.growth_rate(r["z"]) - r["LB"]) <= 1e-12 * r["LB"]
+
+
+def test_algorithm1_rescaled_random_vs_enumeration():
+    rng = np.random.default_rng(2028)
+    for _ in range(30):
+        net = random_network(rng)
+        exact = enumerate_best(net)
+        r = algorithm1_rescaled(net, eta=ETA)
+        assert r["LB"] - 1e-12 <= exact <= r["UB"] + 1e-12
+        if exact > 1e-9:
+            assert (r["UB"] - r["LB"]) / exact <= 1e-5
+
+
 # ---------------------------------------------------------------- certificado
 def test_certify_example():
     net = example()
@@ -226,14 +276,3 @@ def test_certify_no_false_positives():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([os.path.abspath(__file__), "-q"]))
-    
-    
-    
-    
-  
-    
-# import pytest, os
-# os.chdir(r"C:\Users\Trabajador\Desktop\max-growth-subnetworks")
-# pytest.main(["tests", "-q"])
-    
-    
