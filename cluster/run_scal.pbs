@@ -1,11 +1,11 @@
-#!/bin/bash
+#!/bin/bash -l
 # Estudio de escalabilidad en Euler (PBS Pro). Una tarea del array = una instancia.
 # Envío desde la raíz del repositorio (crear antes la carpeta logs):
 #   mkdir -p logs
 #   qsub -J 0-79 -v PART=alg1   cluster/run_scal.pbs
 #   qsub -J 0-39 -v PART=alg2   cluster/run_scal.pbs
 #   qsub -J 0-29 -v PART=clique cluster/run_scal.pbs
-# Al terminar:  python experiments/scalability.py --part alg1 --aggregate   (y alg2, clique)
+# Al terminar:  "$PY" experiments/scalability.py --part alg1 --aggregate   (y alg2, clique)
 #PBS -N scal
 #PBS -q RouteQ
 #PBS -l select=1:ncpus=1:mem=8gb
@@ -13,8 +13,10 @@
 #PBS -j oe
 #PBS -o logs/
 
+set -eo pipefail          # sin -u: los scripts de "module" usan variables sin definir
 cd "$PBS_O_WORKDIR"
 module load python/3.12.8 gurobi/12.0.3
 export GRB_LICENSE_FILE=/modules/apps/gurobi/gurobi1203/linux64/gurobi.lic
+PY=python3
 
-python experiments/scalability.py --part "$PART" --task "$PBS_ARRAY_INDEX"
+"$PY" experiments/scalability.py --part "$PART" --task "$PBS_ARRAY_INDEX"
