@@ -22,3 +22,6 @@ scenarios/*
 .DS_Store
 
 .pytest_cache/
+
+logs/*
+!logs/.gitkeep
