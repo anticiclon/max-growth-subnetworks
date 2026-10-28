@@ -1,0 +1,27 @@
+#!/bin/bash
+# Comprobación del entorno en Euler antes del estudio (1-2 minutos).
+# Envío desde la raíz del repositorio:  mkdir -p logs && qsub cluster/probe.pbs
+#PBS -N scal_probe
+#PBS -q RouteQ
+#PBS -l select=1:ncpus=1:mem=4gb
+#PBS -l walltime=00:20:00
+#PBS -j oe
+#PBS -o logs/
+
+cd "$PBS_O_WORKDIR"
+module load python/3.12.8 gurobi/12.0.3
+export GRB_LICENSE_FILE=/modules/apps/gurobi/gurobi1203/linux64/gurobi.lic
+
+python - <<'PY'
+import numpy, scipy, scipy.sparse.linalg, gurobipy as gp
+print("numpy", numpy.__version__, "| scipy", scipy.__version__, "| gurobi", gp.gurobi.version())
+m = gp.Model()                       # con licencia restringida esto falla (más de 2000 variables)
+m.addVars(3000)
+m.Params.OutputFlag = 0
+m.optimize()
+print("licencia completa: OK")
+PY
+python experiments/scalability.py --part alg1 --task 0
+python experiments/scalability.py --part alg2 --task 0
+python experiments/scalability.py --part clique --task 0
+echo "PROBE OK"
