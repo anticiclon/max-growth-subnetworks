@@ -1,5 +1,6 @@
 import numpy as np
 import gurobipy as gp
+import time
 from gurobipy import GRB
 
 
@@ -60,8 +61,9 @@ def solve_theta(lp, lam):
     model, u, C2 = lp["model"], lp["u"], lp["C2"]
     for j in range(lp["n"]):
         model.chgCoeff(C2[j], u[j], -lam)
+    t0 = time.perf_counter()
     model.optimize()
-    lp["time_lp"] += model.Runtime
+    lp["time_lp"] += time.perf_counter() - t0   # reloj de pared: Runtime puede valer 0.0 en Windows
     if model.Status != GRB.OPTIMAL:
         raise RuntimeError(f"PL de theta(lambda={lam}) no óptimo (estado {model.Status})")
     theta = model.ObjVal
