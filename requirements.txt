@@ -1,0 +1,8 @@
+# Python 3.12.8, Gurobi 12.0.3 (licencia necesaria)
+numpy
+scipy
+networkx
+matplotlib
+gurobipy
+mpmath
+pytest
