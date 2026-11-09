@@ -1,0 +1,22 @@
+#!/bin/bash -l
+# Estudio computacional del Algoritmo 3 en Euler (PBS Pro). Una tarea del array = una instancia.
+# Envío desde la raíz del repositorio (crear antes la carpeta logs):
+#   mkdir -p logs
+#   qsub -J 0-39 cluster/run_bound.pbs
+# Al terminar:  python3 experiments/scalability_bound.py --aggregate
+# El límite de cada instancia (TOTAL_TIME_LIMIT, 6 h) se comprueba entre niveles de norma; el
+# walltime deja margen para el último nivel.
+#PBS -N scal3
+#PBS -q RouteQ
+#PBS -l select=1:ncpus=8:mem=8gb     # 8 hilos de Gurobi (THREADS en scalability_bound.py)
+#PBS -l walltime=08:00:00
+#PBS -j oe
+#PBS -o logs/
+
+set -eo pipefail          # sin -u: los scripts de "module" usan variables sin definir
+cd "$PBS_O_WORKDIR"
+module load python/3.12.8 gurobi/12.0.3
+export GRB_LICENSE_FILE=/modules/apps/gurobi/gurobi1203/linux64/gurobi.lic
+PY=python3
+
+"$PY" experiments/scalability_bound.py --task "$PBS_ARRAY_INDEX"

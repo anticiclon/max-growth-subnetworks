@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 
 from instances import running_example, oregonator, random_instance
-from perron import perron_check
+from perron import growth_rate_mp, perron_check
 
 
 def test_running_example_cycle():
@@ -57,6 +57,16 @@ def test_random_instances():
             assert any(net.source[a] == v for a in np.flatnonzero(zr))
             assert any(net.S_plus[v, a] > 0 for a in np.flatnonzero(zr))
         checked += 1
+
+
+def test_growth_rate_mp():
+    assert float(growth_rate_mp(running_example(), [1, 1, 0, 0])) == pytest.approx(np.sqrt(2) - 1, rel=1e-14)
+    rng = np.random.default_rng(20261108)
+    for _ in range(30):
+        net = random_instance(rng, 6, 10)
+        z = rng.random(net.m) < 0.7
+        L = net.growth_rate(z)
+        assert float(growth_rate_mp(net, z)) == pytest.approx(L, rel=1e-9, abs=1e-12)
 
 
 if __name__ == "__main__":

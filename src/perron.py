@@ -39,17 +39,29 @@ def _spectral(B):
         return mp.re(E[i]), [xi / xmax for xi in x]
 
 
+def _scc_blocks(net, z):
+    """Componentes fuertemente conexas del grafo de especies de M_z (arco j -> v si (M_z)_vj > 0)."""
+    M = net.M(z)
+    A = (M - np.diag(np.diag(M))) > 0
+    nc, lab = connected_components(A, directed=True, connection="strong")
+    return [np.flatnonzero(lab == c) for c in range(nc)]
+
+
+def growth_rate_mp(net, z):
+    """Lambda(z) con mpmath (DPS dígitos), como mp.mpf: la mayor abscisa espectral de los bloques
+    de M_z en sus componentes fuertemente conexas (en ese orden, M_z es triangular por bloques)."""
+    z = np.asarray(z, dtype=bool)
+    with mp.workdps(DPS):
+        return max(_spectral(_block(net, z, b))[0] for b in _scc_blocks(net, z))
+
+
 def sa_reduction(net, z):
     """Lema 3.1. Para una selección z con Lambda(z) > 0 devuelve (z_red, C): C es la componente
     fuertemente conexa del grafo de especies cuyo bloque tiene abscisa espectral Lambda(z), y z_red
     conserva las reacciones de z con fuente en C que producen alguna especie de C."""
     z = np.asarray(z, dtype=bool)
-    M = net.M(z)
-    A = (M - np.diag(np.diag(M))) > 0
-    nc, lab = connected_components(A, directed=True, connection="strong")
-    blocks = [np.flatnonzero(lab == c) for c in range(nc)]
     with mp.workdps(DPS):
-        C = max(blocks, key=lambda b: _spectral(_block(net, z, b))[0])
+        C = max(_scc_blocks(net, z), key=lambda b: _spectral(_block(net, z, b))[0])
         lam, _ = _spectral(_block(net, z, C))
     if lam <= 0:
         raise ValueError("El lema exige Lambda(z) > 0")

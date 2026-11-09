@@ -3,6 +3,9 @@
 Maximiza la cota (alpha* - 1) ||S|_A'||_kappa sobre las subredes autoamplificadoras del modelo de
 flujos acotados (P), con eps = 1/Delta <= f_a <= Delta en las reacciones seleccionadas.
 S y T son las matrices de entrada y salida (especies x reacciones); kappa, las constantes.
+Con closed=True (variante cerrada, para redes sin especies tamponadas) se exige además
+y_v >= z_a si S_va > 0: toda especie consumida por la subred pertenece al conjunto amplificador
+y, por tanto, la produce la subred.
 """
 import time
 
@@ -13,6 +16,8 @@ from gurobipy import GRB
 TAU = 1e-6          # tolerancia del signo de rho
 REL = 1e-9          # tolerancia relativa de los niveles de norma
 ETA = 1e-6          # anchura final del intervalo de alpha
+FEAS_TOL = 1e-9     # FeasibilityTol e IntFeasTol de Gurobi: con 1e-6 (por defecto), un flujo
+                    # ligeramente infactible puede dar un cociente mayor que el MAF
 
 
 def candidate_norms(S, kappa, max_subsets=2 ** 20):
@@ -35,7 +40,7 @@ def candidate_norms(S, kappa, max_subsets=2 ** 20):
     return np.array(out)
 
 
-def solve_aux(S, T, kappa, Delta, t, mu, env=None, time_limit=None):
+def solve_aux(S, T, kappa, Delta, t, mu, env=None, time_limit=None, closed=False):
     """MILP auxiliar A(t, mu): max rho con rho <= (Tf)_v - t (Sf)_v + Gamma (1 - y_v) y las
     restricciones (P-auto)-(P-supp) y (P-norm). Con mu=None no se fija la norma (MAF global).
     Devuelve {'sign': 'pos'|'zero'|'neg'|'infeasible'|'undecided', 'f', 'z', 'y', 'rho', 'bound'}."""
@@ -48,6 +53,8 @@ def solve_aux(S, T, kappa, Delta, t, mu, env=None, time_limit=None):
         md.Params.TimeLimit = time_limit
     md.Params.MIPGap = 0.0
     md.Params.MIPGapAbs = TAU / 10
+    md.Params.FeasibilityTol = FEAS_TOL
+    md.Params.IntFeasTol = FEAS_TOL
     f = md.addVars(m, lb=0.0, ub=Delta)
     z = md.addVars(m, vtype=GRB.BINARY)
     y = md.addVars(n, vtype=GRB.BINARY)
@@ -66,6 +73,9 @@ def solve_aux(S, T, kappa, Delta, t, mu, env=None, time_limit=None):
         md.addConstr(f[a] <= Delta * z[a])
     md.addConstr(y.sum() >= 1)
     md.addConstr(f.sum() >= 1)
+    if closed:
+        for v, a in zip(*np.nonzero(S)):
+            md.addConstr(y[v] >= z[a])
     if mu is not None:                       # norma == mu, dividida entre mu
         w = md.addVars(n, vtype=GRB.BINARY)
         md.addConstr(w.sum() >= 1)
@@ -87,9 +97,9 @@ def solve_aux(S, T, kappa, Delta, t, mu, env=None, time_limit=None):
         sign = "zero"
     else:
         sign = "undecided"
-    return {"sign": sign, "rho": val, "bound": bnd,
-            "f": np.array([f[a].X for a in range(m)]),
-            "z": np.array([z[a].X > 0.5 for a in range(m)]),
+    zz = np.array([z[a].X > 0.5 for a in range(m)])
+    ff = np.where(zz, np.maximum([f[a].X for a in range(m)], 0.0), 0.0)   # sin ruido fuera del soporte
+    return {"sign": sign, "rho": val, "bound": bnd, "f": ff, "z": zz,
             "y": np.array([y[v].X > 0.5 for v in range(n)])}
 
 
@@ -99,11 +109,11 @@ def min_ratio(S, T, f, y):
     return min(Tf[v] / Sf[v] for v in np.flatnonzero(y))
 
 
-def bracket(S, T, kappa, Delta, mu, b0, env=None, time_limit=None):
+def bracket(S, T, kappa, Delta, mu, b0, env=None, time_limit=None, closed=False):
     """Bucle interno del Algoritmo 3 en el nivel mu (o MAF global si mu=None).
     Devuelve {'status', 'a', 'b', 'z', 'y', 'f', 'n_milp', 'certified'} con status
     'amplifying', 'nonamplifying' (certificado) o 'undecided' (A(1, mu) sin decidir)."""
-    r = solve_aux(S, T, kappa, Delta, 1.0, mu, env, time_limit)
+    r = solve_aux(S, T, kappa, Delta, 1.0, mu, env, time_limit, closed)
     if r["sign"] == "undecided":
         return {"status": "undecided", "n_milp": 1, "certified": False}
     if r["sign"] != "pos":
@@ -111,12 +121,16 @@ def bracket(S, T, kappa, Delta, mu, b0, env=None, time_limit=None):
     best, a, b, n_milp, cert = r, min_ratio(S, T, r["f"], r["y"]), b0, 1, True
     while b - a > ETA:
         t = 0.5 * (a + b)
-        r = solve_aux(S, T, kappa, Delta, t, mu, env, time_limit)
+        r = solve_aux(S, T, kappa, Delta, t, mu, env, time_limit, closed)
         n_milp += 1
-        if r["sign"] == "pos":
-            best, a = r, max(t, min_ratio(S, T, r["f"], r["y"]))
-        elif r["sign"] == "zero":
-            best, a, b = r, t, t
+        if r["sign"] == "pos" and min_ratio(S, T, r["f"], r["y"]) > t:
+            best, a = r, min_ratio(S, T, r["f"], r["y"])
+        elif r["sign"] in ("pos", "zero"):  # |rho*(t)| <= TAU: el óptimo está en [t - TAU, t + TAU]
+            ra = min_ratio(S, T, r["f"], r["y"])
+            if ra > a:
+                best, a = r, ra
+            b = min(b, t + TAU)
+            break
         elif r["sign"] == "neg":
             b = t
         else:
@@ -126,24 +140,27 @@ def bracket(S, T, kappa, Delta, mu, b0, env=None, time_limit=None):
             "n_milp": n_milp, "certified": cert}
 
 
-def global_maf(S, T, Delta, env=None, time_limit=None):
+def global_maf(S, T, Delta, env=None, time_limit=None, closed=False):
     """MAF global del modelo (P) sin fijar la norma; su extremo superior b es abar."""
-    return bracket(S, T, np.ones(S.shape[1]), Delta, None, Delta * T.sum(axis=1).max(), env, time_limit)
+    return bracket(S, T, np.ones(S.shape[1]), Delta, None, Delta * T.sum(axis=1).max(), env,
+                   time_limit, closed)
 
 
-def bound_sweep(S, T, kappa, Delta, abar, env=None, time_limit=None, total_time=None):
-    """Algoritmo 3. Devuelve LB, UB, la mejor subred (z, y, alpha, mu), los niveles procesados,
-    el número de MILP, si el resultado está certificado y el tiempo."""
+def bound_sweep(S, T, kappa, Delta, abar, env=None, time_limit=None, total_time=None, closed=False):
+    """Algoritmo 3. Devuelve LB, UB, la mejor subred (z, y, alpha, mu), los intervalos de los
+    niveles amplificadores (levels), el número de niveles procesados (n_levels), el número de
+    MILP, si el resultado está certificado y el tiempo."""
     t0 = time.perf_counter()
     grid = candidate_norms(S, kappa)
-    LB, UBd, best, n_milp, cert, levels = 0.0, 0.0, None, 0, True, []
+    LB, UBd, best, n_milp, n_proc, cert, levels = 0.0, 0.0, None, 0, 0, True, []
     for mu in grid:
         if (abar - 1) * mu <= LB:
             break
         if total_time is not None and time.perf_counter() - t0 > total_time:
             UBd, cert = max(UBd, (abar - 1) * mu), False      # niveles sin procesar
             break
-        r = bracket(S, T, kappa, Delta, mu, abar, env, time_limit)
+        r = bracket(S, T, kappa, Delta, mu, abar, env, time_limit, closed)
+        n_proc += 1
         n_milp += r["n_milp"]
         cert &= r["certified"]
         if r["status"] == "undecided":
@@ -156,4 +173,4 @@ def bound_sweep(S, T, kappa, Delta, abar, env=None, time_limit=None, total_time=
             LB, best = (r["a"] - 1) * mu, {"z": r["z"], "y": r["y"], "f": r["f"], "alpha": r["a"], "mu": mu}
         UBd = max(UBd, (r["b"] - 1) * mu)
     return {"LB": LB, "UB": max(LB, UBd), "best": best, "levels": levels, "n_grid": len(grid),
-            "n_milp": n_milp, "certified": cert, "time": time.perf_counter() - t0}
+            "n_levels": n_proc, "n_milp": n_milp, "certified": cert, "time": time.perf_counter() - t0}
