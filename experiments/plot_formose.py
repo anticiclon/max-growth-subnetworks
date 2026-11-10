@@ -1,5 +1,6 @@
 """Figura de la formosa: distribución empírica de Lambda_MAF / Lambda* (continua) y de
-Lambda(z_B) / Lambda* (discontinua) por régimen.
+Lambda(z_B) / Lambda* por régimen: peor (discontinua) y mejor (punteada) de las subredes
+empatadas en la cota máxima.
 
 Lee output/formose_bound.csv (exp_formose_bound.py, tasas con mpmath). Si no existe, lee
 output/formose_ensemble.csv (exp_formose.py) y dibuja solo las curvas del MAF.
@@ -18,13 +19,15 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 
 REGIMES = ["NH3", "HCOOH", "agua"]
 COLORS = {"NH3": "#2a78d6", "HCOOH": "#eb6834", "agua": "#1baf7a"}
-STYLES = {"maf": "-", "B": "--"}
+STYLES = {"maf": "-", "B": "--", "Bw": "--", "Bb": ":"}
 TEXT = {
     "en": {"NH3": "Ammonia", "HCOOH": "Formic acid", "agua": "Water only",
            "maf": r"$\Lambda_{\mathrm{MAF}}/\Lambda^*$", "B": r"$\Lambda(\mathbf{z}_B)/\Lambda^*$",
+           "Bw": r"$\Lambda(\mathbf{z}_B)/\Lambda^*$, worst", "Bb": r"$\Lambda(\mathbf{z}_B)/\Lambda^*$, best",
            "x": r"Rate relative to $\Lambda^*$", "y": "Fraction of realizations"},
     "es": {"NH3": "Amoníaco", "HCOOH": "Ácido fórmico", "agua": "Solo agua",
            "maf": r"$\Lambda_{\mathrm{MAF}}/\Lambda^*$", "B": r"$\Lambda(\mathbf{z}_B)/\Lambda^*$",
+           "Bw": r"$\Lambda(\mathbf{z}_B)/\Lambda^*$, peor", "Bb": r"$\Lambda(\mathbf{z}_B)/\Lambda^*$, mejor",
            "x": r"Tasa relativa a $\Lambda^*$", "y": "Fracción de realizaciones"},
 }
 
@@ -32,7 +35,8 @@ TEXT = {
 def load_ratios(path):
     """Cocientes por régimen y curva: {curva: {régimen: array ordenado en (0, 1]}}.
 
-    Con formose_bound.csv, curvas "maf" (L_maf / Lstar) y "B" (L_B / Lstar); con
+    Con formose_bound.csv, curvas "maf" (L_maf / Lstar), "Bw" y "Bb" (peor y mejor de las subredes
+    empatadas en la cota, L_B_worst y L_B_best; en un CSV sin empates, "B" con L_B); con
     formose_ensemble.csv, solo "maf" (L_maf / Lstar_LB). Lambda* está en [Lstar, Lstar_UB]
     (cota superior certificada): un cociente mayor que 1 solo puede deberse a esa brecha, y
     se recorta a 1; una tasa mayor que Lstar_UB indicaría un error en los datos.
@@ -41,8 +45,11 @@ def load_ratios(path):
         rows = list(csv.DictReader(fh))
     bound = "L_B" in rows[0]
     lstar = "Lstar" if bound else "Lstar_LB"
-    curves = ["maf", "B"] if bound else ["maf"]
-    col = {"maf": "L_maf", "B": "L_B"}
+    if "L_B_worst" in rows[0]:
+        curves = ["maf", "Bw", "Bb"]
+    else:
+        curves = ["maf", "B"] if bound else ["maf"]
+    col = {"maf": "L_maf", "B": "L_B", "Bw": "L_B_worst", "Bb": "L_B_best"}
     out = {c: {} for c in curves}
     for c in curves:
         for reg in REGIMES:
@@ -115,7 +122,7 @@ def plot(ratios, out, lang="en"):
             kinds = [tuple(Line2D([], [], color=COLORS[reg], ls=STYLES[c], lw=1.4) for reg in REGIMES)
                      for c in ratios]
             ax.legend(kinds, [t[c] for c in ratios], handler_map={tuple: _Stacked()}, handleheight=1.6,
-                      loc="upper left", bbox_to_anchor=(0.0, 0.70), frameon=False)
+                      loc="upper left", bbox_to_anchor=(0.0, 0.70), frameon=False, handlelength=2.6)
         fig.savefig(out, bbox_inches="tight")
         plt.close(fig)
 

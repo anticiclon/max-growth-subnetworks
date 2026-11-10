@@ -40,7 +40,7 @@ def candidate_norms(S, kappa, max_subsets=2 ** 20):
     return np.array(out)
 
 
-def solve_aux(S, T, kappa, Delta, t, mu, env=None, time_limit=None, closed=False):
+def solve_aux(S, T, kappa, Delta, t, mu, env=None, time_limit=None, closed=False, exclude=()):
     """MILP auxiliar A(t, mu): max rho con rho <= (Tf)_v - t (Sf)_v + Gamma (1 - y_v) y las
     restricciones (P-auto)-(P-supp) y (P-norm). Con mu=None no se fija la norma (MAF global).
     Devuelve {'sign': 'pos'|'zero'|'neg'|'infeasible'|'undecided', 'f', 'z', 'y', 'rho', 'bound'}."""
@@ -76,6 +76,9 @@ def solve_aux(S, T, kappa, Delta, t, mu, env=None, time_limit=None, closed=False
     if closed:
         for v, a in zip(*np.nonzero(S)):
             md.addConstr(y[v] >= z[a])
+    for zb in exclude:                       # cortes que excluyen soportes ya encontrados
+        md.addConstr(gp.quicksum(1 - z[a] for a in range(m) if zb[a])
+                     + gp.quicksum(z[a] for a in range(m) if not zb[a]) >= 1)
     if mu is not None:                       # norma == mu, dividida entre mu
         w = md.addVars(n, vtype=GRB.BINARY)
         md.addConstr(w.sum() >= 1)
@@ -174,3 +177,19 @@ def bound_sweep(S, T, kappa, Delta, abar, env=None, time_limit=None, total_time=
         UBd = max(UBd, (r["b"] - 1) * mu)
     return {"LB": LB, "UB": max(LB, UBd), "best": best, "levels": levels, "n_grid": len(grid),
             "n_levels": n_proc, "n_milp": n_milp, "certified": cert, "time": time.perf_counter() - t0}
+
+
+def ties(S, T, kappa, Delta, mu, t, env=None, time_limit=None, closed=False, cap=200):
+    """Soportes con nivel mu (mu=None: sin fijar la norma, como global_maf con kappa = 1) y MAF
+    restringido mayor que t, enumerados con cortes que excluyen cada soporte encontrado: se resuelve
+    A(t, mu) mientras su óptimo sea positivo (signo "pos"). Devuelve (lista de z, completa), donde
+    completa es False si un MILP queda indeciso o se alcanza cap."""
+    found = []
+    while len(found) < cap:
+        r = solve_aux(S, T, kappa, Delta, t, mu, env, time_limit, closed, found)
+        if r["sign"] in ("neg", "zero", "infeasible"):
+            return found, True
+        if r["sign"] != "pos":
+            return found, False
+        found.append(r["z"])
+    return found, False

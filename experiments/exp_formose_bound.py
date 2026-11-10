@@ -4,6 +4,10 @@ Requiere output/formose_ensemble.csv y output/formose_barriers.csv (experiments/
 mismas semillas). En cada realización:
   - maximiza la cota Phi_B = (alpha - 1) ||S|_z||_kappa con bound_sweep (Algoritmo 3); abar es
     el extremo superior del MAF global, que no depende de kappa y se calcula una sola vez;
+  - enumera las subredes empatadas en la cota máxima (bound_sweep.ties): las del nivel de
+    norma de z_B con MAF restringido mayor que alpha_B - TIE_ALPHA. El solver puede devolver
+    cualquiera de ellas, así que se dan la mejor y la peor tasa. n_near cuenta los demás
+    niveles cuyo intervalo de la cota alcanza LB (deberían ser 0);
   - compara la subred z_B con la de crecimiento máximo z* (Algoritmo 1, del CSV) y con la del
     MAF máximo;
   - comprueba la Proposición 4.6 sobre z* con perron_check.
@@ -24,7 +28,7 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 import numpy as np
 import gurobipy as gp
 
-from bound_sweep import bound_sweep, global_maf
+from bound_sweep import bound_sweep, global_maf, ties
 from kinetics import formose_realization, load_formose
 from maf import maf_optimal
 from perron import growth_rate_mp, perron_check
@@ -33,6 +37,7 @@ SEED = 20261027
 REGIMES = ["NH3", "HCOOH", "agua"]
 N_REAL = 50
 EQ = 1e-9            # diferencia relativa de Lambda por debajo de la cual dos subredes crecen igual
+TIE_ALPHA = 1e-5     # empate en la cota: mismo nivel de norma y MAF restringido > alpha_B - TIE_ALPHA
 OUT = os.path.join(ROOT, "output")
 
 
@@ -76,10 +81,15 @@ def run_realization(regime, i, ens, bar, z_maf, abar, env):
     K = float(cons[v])
     a_K = max(np.flatnonzero(zB & (S[v] > 0)), key=lambda a: S[v, a] * net.kappa[a])
     Phi = (b["alpha"] - 1) * K
+    tied, complete = ties(S, T, net.kappa, Delta, b["mu"], b["alpha"] - TIE_ALPHA, env)
+    if not complete or not any(np.array_equal(z, zB) for z in tied):
+        raise RuntimeError(f"{regime} {i}: enumeración de empates incompleta o sin z_B")
+    n_near = sum(1 for mu, lo, hi in r["levels"] if mu != b["mu"] and (hi - 1) * mu >= r["LB"] * (1 - 1e-6))
 
     L_star = float(growth_rate_mp(net, z_star))
     L_maf = float(growth_rate_mp(net, z_maf))
     L_B = float(growth_rate_mp(net, zB))
+    L_tie = [L_B if np.array_equal(z, zB) else float(growth_rate_mp(net, z)) for z in tied]
     pc = perron_check(net, z_star, Delta)
     return {
         "regime": regime, "realization": i,
@@ -92,6 +102,13 @@ def run_realization(regime, i, ens, bar, z_maf, abar, env):
         "certified": r["certified"], "time": r["time"], "ub_ge_lstar": bool(r["UB"] >= L_star),
         "L_red": pc["L_red"], "id_relerr": pc["id_relerr"], "spread": pc["spread"],
         "perron_feasible": pc["feasible"], "size_red": int(pc["z_red"].sum()),
+        # empates en la cota máxima
+        "n_tie_B": len(tied), "L_B_best": max(L_tie), "L_B_worst": min(L_tie),
+        "ratio_B_best": max(L_tie) / L_star, "ratio_B_worst": min(L_tie) / L_star,
+        "tight_B_best": max(L_tie) / Phi, "tight_B_worst": min(L_tie) / Phi,
+        "maf_tied": any(np.array_equal(z, z_maf) for z in tied),
+        "maf_in_ties": all(np.all(z[z_maf]) for z in tied),
+        "reactions_ties": " | ".join(sorted(reaction_set(z) for z in tied)), "n_near": n_near,
         # columnas que no estaban en el prototipo
         "mu_B": b["mu"], "max_width": max(hi - lo for _, lo, hi in r["levels"]), "K_class": str(labels[a_K]), "alpha_f": pc["alpha_f"],
         "Lstar_dbl": float(row["Lstar_LB"]), "Lstar_UB": float(row["Lstar_UB"]),
@@ -100,20 +117,29 @@ def run_realization(regime, i, ens, bar, z_maf, abar, env):
 
 def summarize(R, title):
     f = lambda k: np.array([r[k] for r in R], dtype=float)
-    rb, tb, rm = f("ratio_B"), f("tight_B"), f("L_maf") / f("Lstar")
-    rel = f("L_B") / f("L_maf") - 1
+    rm = f("L_maf") / f("Lstar")
+    rw, rb = f("ratio_B_worst"), f("ratio_B_best")
+    tw, tb = f("tight_B_worst"), f("tight_B_best")
+    relw, relb = f("L_B_worst") / f("L_maf") - 1, f("L_B_best") / f("L_maf") - 1
+    nt = f("n_tie_B")
+    sets = {z for r in R for z in r["reactions_ties"].split(" | ")}
     cls = {c: sum(r["K_class"] == c for r in R) for c in sorted({r["K_class"] for r in R})}
     n = len(R)
     return [
         f"== {title} ({n} realizaciones) ==",
-        f"  Lambda(z_B)/Lambda*: mediana {np.median(rb):.3g}, mínimo {rb.min():.3g}, máximo {rb.max():.3g}; "
-        f">= 0.999: {(rb >= 0.999).sum()}; < 0.1: {(rb < 0.1).sum()}",
-        f"  Lambda(z_B)/Phi_B(z_B): mediana {np.median(tb):.2g}, mínimo {tb.min():.2g}, máximo {tb.max():.2g} "
-        f"(la cota supera la tasa por factores {1 / tb.max():.2g}-{1 / tb.min():.2g})",
-        f"  z_B frente al MAF máximo: más rápida {(rel > EQ).sum()}, igual {(np.abs(rel) <= EQ).sum()}, "
-        f"más lenta {(rel < -EQ).sum()}; z_B = MAF {sum(r['zB_is_maf'] for r in R)}; "
-        f"contiene al MAF {sum(r['maf_in_zB'] for r in R)}",
-        f"  z_B: {len({r['reactions_B'] for r in R})} distintas, {int(f('size_B').min())}-{int(f('size_B').max())} "
+        f"  empates en la cota máxima: {(nt > 1).sum()} realizaciones, hasta {int(nt.max())} subredes; "
+        f"otros niveles que alcanzan LB: {int(f('n_near').sum())}",
+        f"  Lambda(z_B)/Lambda* (peor | mejor): mediana {np.median(rw):.3g} | {np.median(rb):.3g}; "
+        f"mínimo {rw.min():.3g} | {rb.min():.3g}; máximo {rw.max():.3g} | {rb.max():.3g}; "
+        f">= 0.999: {(rw >= 0.999).sum()} | {(rb >= 0.999).sum()}; < 0.1: {(rw < 0.1).sum()} | {(rb < 0.1).sum()}",
+        f"  Lambda(z_B)/Phi_B(z_B) (peor | mejor): mediana {np.median(tw):.2g} | {np.median(tb):.2g}; "
+        f"rango {tw.min():.2g}-{tb.max():.2g} (la cota supera la tasa por factores {1 / tb.max():.2g}-{1 / tw.min():.2g})",
+        f"  z_B frente al MAF máximo (peor | mejor): más rápida {(relw > EQ).sum()} | {(relb > EQ).sum()}, "
+        f"igual {(np.abs(relw) <= EQ).sum()} | {(np.abs(relb) <= EQ).sum()}, más lenta {(relw < -EQ).sum()} | "
+        f"{(relb < -EQ).sum()}; MAF entre las empatadas {sum(r['maf_tied'] for r in R)}; "
+        f"todas contienen al MAF {sum(r['maf_in_ties'] for r in R)}",
+        f"  subredes que maximizan la cota: {len(sets)} distintas; la devuelta por el Algoritmo 3: "
+        f"{len({r['reactions_B'] for r in R})} distintas, {int(f('size_B').min())}-{int(f('size_B').max())} "
         f"reacciones, alpha_B {f('alpha_B').min():.5f}-{f('alpha_B').max():.5f}; K fijada por {cls}; "
         f"max |K_B/mu_B - 1| = {np.abs(f('K_B') / f('mu_B') - 1).max():.1e}",
         f"  Algoritmo 3: niveles mediana {np.median(f('n_levels')):g}, máximo {f('n_levels').max():g}; "

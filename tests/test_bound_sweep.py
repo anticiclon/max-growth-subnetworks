@@ -15,7 +15,7 @@ import numpy as np
 import gurobipy as gp
 import pytest
 
-from bound_sweep import candidate_norms, global_maf, bound_sweep, min_ratio
+from bound_sweep import ties, candidate_norms, global_maf, bound_sweep, min_ratio
 from instances import oregonator, running_example
 from kinetics import load_formose
 from maf import maf_optimal
@@ -92,6 +92,18 @@ def test_closed_variant(env):
     r = bound_sweep(S_CL, T_CL, np.ones(2), D, gc["b"], env, closed=True)
     assert r["certified"] and r["best"]["z"].all()
     assert r["LB"] - 1e-6 <= 2 * (a - 1) <= r["UB"] + 1e-6
+
+
+def test_ties(env):
+    # A -> 2A dos veces (a1 y a2) y A -> B (a3): {a1}, {a2} y {a1, a2} tienen MAF 2; con kappa = 1,
+    # en el nivel de norma 1 empatan {a1} y {a2}, y {a1, a2} tiene norma 2
+    S = np.array([[1.0, 1.0, 1.0], [0.0, 0.0, 0.0]])
+    T = np.array([[2.0, 2.0, 0.0], [0.0, 0.0, 1.0]])
+    D = S.sum() + T.sum()
+    zs, complete = ties(S, T, np.ones(3), D, None, 2.0 - 1e-5, env)
+    assert complete and sorted(tuple(int(x) for x in z) for z in zs) == [(0, 1, 0), (1, 0, 0), (1, 1, 0)]
+    zs, complete = ties(S, T, np.ones(3), D, 1.0, 2.0 - 1e-5, env)
+    assert complete and sorted(tuple(int(x) for x in z) for z in zs) == [(0, 1, 0), (1, 0, 0)]
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
